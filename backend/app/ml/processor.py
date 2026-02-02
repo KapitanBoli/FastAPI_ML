@@ -32,9 +32,12 @@ transform = transforms.Compose(
 
 def process_video(video_path: str):
     cap = cv2.VideoCapture(video_path)
+
     batch_frames = []
     batch_size = 30
-    result = None
+    results = []
+    frame_index = 0
+    batch_start = 0
 
     while True:
         ret, frame = cap.read()
@@ -45,19 +48,32 @@ def process_video(video_path: str):
         input_tensor = torch.permute(input_tensor12, (1, 0, 2, 3))
         batch_frames.append(input_tensor)
 
+        frame_index += 1
+
         if len(batch_frames) == batch_size:
             input_batch = torch.cat(batch_frames, dim=1)
             input_variable = input_batch.unsqueeze(dim=0)
+
             with torch.no_grad():
                 output = model(input_variable)
+
             averaged_output = torch.mean(output, dim=0)
-            _, predicted_class = torch.max(averaged_output.data, 0)
+            _, predicted_class = torch.max(averaged_output, 0)
+
+            results.append(
+                {
+                    "from_frame": batch_start,
+                    "to_frame": frame_index - 1,
+                    "predicted_label": labels[predicted_class.item()],
+                    "scores": {
+                        label: float(value)
+                        for label, value in zip(labels, averaged_output.numpy())
+                    },
+                }
+            )
 
             batch_frames = []
-            result = {
-                label: float(value)
-                for label, value in zip(labels, averaged_output.data.numpy())
-            }
+            batch_start = frame_index
 
     cap.release()
-    return result or {label: 0 for label in labels}
+    return results
